@@ -3,19 +3,13 @@
 
 ############################################################################################
 ##
-## Script to install the latest [APPNAME]
+## Script to install the latest [Google Chrome]
 ## 
-## VER 3.0.3
+## VER 3.0.1
 ##
 ## Change Log
 ##
-## 2022-02-28   - Updated file type detection logic where we can't tell what the file is by filename in downloadApp function
-## 2022-02-23   - Added detection support for bz2 and tbz2
-## 2022-02-11   - Added detection support for mpkg
-## 2022-01-05   - Updated Rosetta detection code
-## 2021-11-19   - Added logic to handle both APP and PKG inside DMG file. New function DMGPKG
-## 2021-12-06   - Added --compressed to curl cli
-##              - Fixed DMGPKG detection
+## 2021-11-19 - Added logic to handle both APP and PKG inside DMG file. New function DMGPKG
 ##
 ############################################################################################
 
@@ -30,17 +24,13 @@
 ## Feedback: neiljohn@microsoft.com
 
 # User Defined variables
-latestver=`curl -s -L https://www.citrix.com/downloads/workspace-app/mac/workspace-app-for-mac-latest.html#ctx-dl-eula-external | grep "<h1>Citrix " | awk '{print $4}'`
-CRCurrVersNormalized=$( echo $latestver | sed -e 's/[.]//g' )
-url1="https:"
-url2=`curl -s -L https://www.citrix.com/downloads/workspace-app/mac/workspace-app-for-mac-latest.html#ctx-dl-eula-external | grep dmg |  sed -n 's/.*rel="//;s/".*//p' | head -n2 | tail -n1`
-weburl=`echo "${url1}${url2}"`
-appname="Citrix Workspace"                                                       # The name of our App deployment script (also used for Octory monitor)
-app="Citrix Workspace.app"                                                      # The actual name of our App once installed
-logandmetadir="/Library/Logs/Microsoft/IntuneScripts/$appname"          # The location of our logs and last updated data
-processpath="/Applications/$app/Contents/MacOS/Citrix Workspace"                  # The process name of the App we are installing
-terminateprocess="true"                                                 # Do we want to terminate the running process? If false we'll wait until its not running
-autoUpdate="false"                                                      # Application updates itself, if already installed we should exit
+weburl="https://dl.google.com/chrome/mac/stable//googlechrome.dmg"              # What is the Azure Blob Storage URL?
+appname="Google Chrome"                                                        # The name of our App deployment script (also used for Octory monitor)
+app="Google Chrome.app"                                                        # The actual name of our App once installed
+logandmetadir="/Library/Logs/Microsoft/IntuneScripts/GoogleChrome"             # The location of our logs and last updated data
+processpath="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"      # The process name of the App we are installing
+terminateprocess="true"                                                       # Do we want to terminate the running process? If false we'll wait until its not running
+autoUpdate="true"                                                             # Application updates itself, if already installed we should exit
 
 # Generated variables
 tempdir=$(mktemp -d)
@@ -115,48 +105,36 @@ checkForRosetta2 () {
     ###############################################################
     ###############################################################
 
-    
-
     echo "$(date) | Checking if we need Rosetta 2 or not"
 
     # if Software update is already running, we need to wait...
     waitForProcess "/usr/sbin/softwareupdate"
 
+    processor=$(/usr/sbin/sysctl -n machdep.cpu.brand_string)
+    if [[ "$processor" == *"Intel"* ]]; then
 
-    ## Note, Rosetta detection code from https://derflounder.wordpress.com/2020/11/17/installing-rosetta-2-on-apple-silicon-macs/
-    OLDIFS=$IFS
-    IFS='.' read osvers_major osvers_minor osvers_dot_version <<< "$(/usr/bin/sw_vers -productVersion)"
-    IFS=$OLDIFS
-
-    if [[ ${osvers_major} -ge 11 ]]; then
-
-        # Check to see if the Mac needs Rosetta installed by testing the processor
-
-        processor=$(/usr/sbin/sysctl -n machdep.cpu.brand_string | grep -o "Intel")
+        echo "$(date) | [$processor] found, Rosetta not needed"
         
-        if [[ -n "$processor" ]]; then
-            echo "$(date) | $processor processor installed. No need to install Rosetta."
-        else
+    else
 
-            # Check for Rosetta "oahd" process. If not found,
-            # perform a non-interactive install of Rosetta.
-            
-            if /usr/bin/pgrep oahd >/dev/null 2>&1; then
-                echo "$(date) | Rosetta is already installed and running. Nothing to do."
+        echo "$(date) | [$processor] found, is Rosetta already installed?"
+
+        # Check Rosetta LaunchDaemon. If no LaunchDaemon is found,
+        # perform a non-interactive install of Rosetta.
+        
+        if [[ ! -f "/Library/Apple/System/Library/LaunchDaemons/com.apple.oahd.plist" ]]; then
+            /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+        
+            if [[ $? -eq 0 ]]; then
+                echo "$(date) | Rosetta has been successfully installed."
+                return
             else
-                /usr/sbin/softwareupdate -install-rosetta -agree-to-license
-            
-                if [[ $? -eq 0 ]]; then
-                    echo "$(date) | Rosetta has been successfully installed."
-                else
-                    echo "$(date) | Rosetta installation failed!"
-                    exitcode=1
-                fi
+                echo "$(date) | Rosetta installation failed!"
             fi
-        fi
+    
         else
-            echo "$(date) | Mac is running macOS $osvers_major.$osvers_minor.$osvers_dot_version."
-            echo "$(date) | No need to install Rosetta on this version of macOS."
+            echo "$(date) | Rosetta is already installed. Nothing to do."
+        fi
     fi
 
 }
@@ -233,10 +211,10 @@ function downloadApp () {
 
     #download the file
     updateOctory installing
-    echo "$(date) | Downloading $appname [$weburl]"
+    echo "$(date) | Downloading $appname"
 
     cd "$tempdir"
-    curl -f -s --connect-timeout 30 --retry 5 --retry-delay 60 --compressed -L -J -O "$weburl"
+    curl -f -s --connect-timeout 30 --retry 5 --retry-delay 60 -L -J -O "$weburl"
     if [ $? == 0 ]; then
 
             # We have downloaded a file, we need to know what the file is called and what type of file it is
@@ -247,16 +225,12 @@ function downloadApp () {
 
             case $tempfile in
 
-            *.pkg|*.PKG|*.mpkg|*.MPKG)
+            *.pkg|*.PKG)
                 packageType="PKG"
                 ;;
 
             *.zip|*.ZIP)
                 packageType="ZIP"
-                ;;
-
-            *.tbz2|*.TBZ2|*.bz2|*.BZ2)
-                packageType="BZ2"
                 ;;
 
             *.dmg|*.DMG)
@@ -268,37 +242,17 @@ function downloadApp () {
 
                 # Mount the dmg file...
                 volume="$tempdir/$appname"
-                echo "$(date) | Mounting Image [$volume] [$tempfile]"
+                echo "$(date) | Mounting Image"
                 hdiutil attach -quiet -nobrowse -mountpoint "$volume" "$tempfile"
-                if [ "$?" = "0" ]; then
-                    echo "$(date) | Mounted succesfully to [$volume]"
+
+                if ls "$volume"/*.app 1> /dev/null 2>&1; then
+                    echo "$(date) | Detected APP, setting PakageType to DMG"
+                    packageType="DMG"
                 else
-                    echo "$(date) | Failed to mount [$tempfile]"
-                    
-                fi
-
-                if  [[ $(ls "$volume" | grep -i .app) ]] && [[ $(ls "$volume" | grep -i .pkg) ]]; then
-
-                    echo "$(date) | Detected both APP and PKG in same DMG (this is normal for Citrix Workspace)"
+                    if ls "$volume"/*.pkg 1> /dev/null 2>&1; then
+                    echo "$(date) | Detected PKG, setting PackageType to DMGPKG"
                     packageType="DMGPKG"
-
-                else
-
-                    if  [[ $(ls "$volume" | grep -i .app) ]]; then 
-                        echo "$(date) | Detected APP, setting PackageType to DMG"
-                        packageType="DMG"
-                    fi 
-
-                    if  [[ $(ls "$volume" | grep -i .pkg) ]]; then 
-                        echo "$(date) | Detected PKG, setting PackageType to DMGPKG"
-                        packageType="DMGPKG"
-                    fi 
-
-                    if  [[ $(ls "$volume" | grep -i .mpkg) ]]; then 
-                        echo "$(date) | Detected PKG, setting PackageType to DMGPKG"
-                        packageType="DMGPKG"
-                    fi 
-
+                    fi
                 fi
 
                 # Unmount the dmg
@@ -309,30 +263,23 @@ function downloadApp () {
             *)
                 # We can't tell what this is by the file name, lets look at the metadata
                 echo "$(date) | Unknown file type [$f], analysing metadata"
-                metadata=$(file -z "$tempfile")
-
+                metadata=$(file "$tempfile")
                 if [[ "$metadata" == *"Zip archive data"* ]]; then
-                packageType="ZIP"
-                mv "$tempfile" "$tempdir/install.zip"
-                tempfile="$tempdir/install.zip"
+                    packageType="ZIP"
+                    mv "$tempfile" "$tempdir/install.zip"
+                    tempfile="$tempdir/install.zip"
                 fi
 
                 if [[ "$metadata" == *"xar archive"* ]]; then
-                packageType="PKG"
-                mv "$tempfile" "$tempdir/install.pkg"
-                tempfile="$tempdir/install.pkg"
+                    packageType="PKG"
+                    mv "$tempfile" "$tempdir/install.pkg"
+                    tempfile="$tempdir/install.pkg"
                 fi
 
-                if [[ "$metadata" == *"DOS/MBR boot sector, extended partition table"* ]] || [[ "$metadata" == *"Apple Driver Map"* ]] ; then
-                packageType="DMG"
-                mv "$tempfile" "$tempdir/install.dmg"
-                tempfile="$tempdir/install.dmg"
-                fi
-
-                if [[ "$metadata" == *"POSIX tar archive (bzip2 compressed data"* ]]; then
-                packageType="BZ2"
-                mv "$tempfile" "$tempdir/install.tar.bz2"
-                tempfile="$tempdir/install.tar.bz2"
+                if [[ "$metadata" == *"bzip2 compressed data"* ]] || [[ "$metadata" == *"zlib compressed data"* ]] ; then
+                    packageType="DMG"
+                    mv "$tempfile" "$tempdir/install.dmg"
+                    tempfile="$tempdir/install.dmg"
                 fi
                 ;;
             esac
@@ -524,12 +471,6 @@ function installDMGPKG () {
     fi
 
     for file in "$volume"/*.pkg
-    do
-        echo "$(date) | Starting installer for [$file]"
-        installer -pkg "$file" -target /Applications
-    done
-
-    for file in "$volume"/*.mpkg
     do
         echo "$(date) | Starting installer for [$file]"
         installer -pkg "$file" -target /Applications
@@ -752,121 +693,6 @@ function installZIP () {
     fi
 }
 
-## Install BZ2 Function
-function installBZ2 () {
-
-    #################################################################################################################
-    #################################################################################################################
-    ##
-    ##  This function takes the following global variables and installs the DMG file into /Applications
-    ##
-    ##  Functions
-    ##
-    ##      isAppRunning (Pauses installation if the process defined in global variable $processpath is running )
-    ##      fetchLastModifiedDate (Called with update flag which causes the function to write the new lastmodified date to the metadata file)
-    ##
-    ##  Variables
-    ##
-    ##      $appname = Description of the App we are installing
-    ##      $tempfile = location of temporary DMG file downloaded
-    ##      $volume = name of volume mount point
-    ##      $app = name of Application directory under /Applications
-    ##
-    ###############################################################
-    ###############################################################
-
-
-    # Check if app is running, if it is we need to wait.
-    waitForProcess "$processpath" "300" "$terminateprocess"
-
-    echo "$(date) | Installing $appname"
-    updateOctory installing
-
-    # Change into temp dir
-    cd "$tempdir"
-    if [ "$?" = "0" ]; then
-      echo "$(date) | Changed current directory to $tempdir"
-    else
-      echo "$(date) | failed to change to $tempfile"
-      if [ -d "$tempdir" ]; then rm -rf $tempdir; fi
-      updateOctory failed
-      exit 1
-    fi
-
-    # Unzip files in temp dir
-    tar -jxf "$tempfile"
-    if [ "$?" = "0" ]; then
-      echo "$(date) | $tempfile uncompressed"
-    else
-      echo "$(date) | failed to uncompress $tempfile"
-      if [ -d "$tempdir" ]; then rm -rf $tempdir; fi
-      updateOctory failed
-      exit 1
-    fi
-
-    # If app is already installed, remove all old files
-    if [[ -a "/Applications/$app" ]]; then
-    
-      echo "$(date) | Removing old installation at /Applications/$app"
-      rm -rf "/Applications/$app"
-    
-    fi
-
-    # Copy over new files
-    rsync -a "$app/" "/Applications/$app"
-    if [ "$?" = "0" ]; then
-      echo "$(date) | $appname moved into /Applications"
-    else
-      echo "$(date) | failed to move $appname to /Applications"
-      if [ -d "$tempdir" ]; then rm -rf $tempdir; fi
-      updateOctory failed
-      exit 1
-    fi
-
-    # Make sure permissions are correct
-    echo "$(date) | Fix up permissions"
-    sudo chown -R root:wheel "/Applications/$app"
-    if [ "$?" = "0" ]; then
-      echo "$(date) | correctly applied permissions to $appname"
-    else
-      echo "$(date) | failed to apply permissions to $appname"
-      if [ -d "$tempdir" ]; then rm -rf $tempdir; fi
-      updateOctory failed
-      exit 1
-    fi
-
-    # Checking if the app was installed successfully
-    if [ "$?" = "0" ]; then
-        if [[ -a "/Applications/$app" ]]; then
-
-            echo "$(date) | $appname Installed"
-            updateOctory installed
-            echo "$(date) | Cleaning Up"
-            rm -rf "$tempfile"
-
-            # Update metadata
-            fetchLastModifiedDate update
-
-            echo "$(date) | Fixing up permissions"
-            sudo chown -R root:wheel "/Applications/$app"
-            echo "$(date) | Application [$appname] succesfully installed"
-            exit 0
-        else
-            echo "$(date) | Failed to install $appname"
-            exit 1
-        fi
-    else
-
-        # Something went wrong here, either the download failed or the install Failed
-        # intune will pick up the exit status and the IT Pro can use that to determine what went wrong.
-        # Intune can also return the log file if requested by the admin
-        
-        echo "$(date) | Failed to install $appname"
-        if [ -d "$tempdir" ]; then rm -rf $tempdir; fi
-        exit 1
-    fi
-}
-
 function updateOctory () {
 
     #################################################################################################################
@@ -963,11 +789,6 @@ fi
 # Install PKG file
 if [[ $packageType == "ZIP" ]]; then
     installZIP
-fi
-
-# Install PKG file
-if [[ $packageType == "BZ2" ]]; then
-    installBZ2
 fi
 
 # Install PKG file
